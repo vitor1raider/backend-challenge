@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Test output
+coverage/
+.vitest/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun-debug.log*
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Local Docker data
+.docker-data/
+postgres-data/
+localstack-data/
+
+# NestJS Observe local configuration
+.observe/
+
+.DS_Store

@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in the .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in the .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the .env}
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:?Set POSTGRES_PORT in the .env}:5432'
+    volumes:
+      - postgres16_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  localstack:
+    image: localstack/localstack:latest
+    restart: unless-stopped
+    environment:
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:?Set LOCALSTACK_AUTH_TOKEN in the .env}
+      SERVICES: sqs
+    ports:
+      - '127.0.0.1:${LOCALSTACK_PORT:?Set LOCALSTACK_PORT in the .env}:4566'
+    volumes:
+      - localstack-data:/var/lib/localstack
+
+volumes:
+  postgres16_data:
+  localstack-data:
