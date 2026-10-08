@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { EntityManager } from '@mikro-orm/postgresql';
+import { UniqueConstraintViolationException } from '@mikro-orm/core';
 import { Injectable } from '@nestjs/common';
 import { LedgerDirection, WagerTransactionKind } from '../../domain/enums';
 import { WagerTransactionProcessed } from '../../domain/events/wager-transaction';
@@ -38,7 +39,8 @@ export class CreateWalletUseCase {
   constructor(private readonly entityManager: EntityManager) {}
 
   async execute(command: CreateWalletCommand): Promise<WalletResult> {
-    return this.entityManager.fork().transactional(async (em) => {
+    try {
+      return await this.entityManager.fork().transactional(async (em) => {
       const wallets = new MikroWalletRepository(em);
       const wagers = new MikroWagerTransactionRepository(em);
       const outbox = new MikroOutboxRepository(em);
@@ -86,7 +88,16 @@ export class CreateWalletUseCase {
       await outbox.save(OutboxMessage.enqueue(WagerTransactionProcessed.from(transaction, context)));
       await outbox.save(OutboxMessage.enqueue(WalletBalanceChanged.from(wallet, entry, { ...context, eventId: randomUUID() })));
       return toWalletResult(wallet);
-    });
+      });
+    } catch (error) {
+      if (error instanceof UniqueConstraintViolationException) {
+        throw new WalletAlreadyExistsError(
+          command.playerId,
+          command.initialBalance.currency,
+        );
+      }
+      throw error;
+    }
   }
 }
 
