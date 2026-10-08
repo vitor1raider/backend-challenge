@@ -14,6 +14,15 @@ export class MikroOutboxRepository {
     return entity === null ? null : this.toDomain(entity);
   }
 
+  async findOldestPendingOccurredAt(): Promise<Date | undefined> {
+    const entity = await this.entityManager.findOne(
+      OutboxMessageEntity,
+      { publishedAt: null },
+      { orderBy: { occurredAt: 'asc' } },
+    );
+    return entity?.occurredAt;
+  }
+
   async findDue(now: Date, limit = 100): Promise<OutboxMessage[]> {
     return this.findDueWithOptions(now, limit);
   }

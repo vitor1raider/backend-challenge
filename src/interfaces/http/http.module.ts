@@ -5,6 +5,7 @@ import { SqsModule } from '../../infrastructure/messaging/sqs';
 import { HealthController } from './health/health.controller';
 import { ProviderWageringController } from './providers/provider-wagering.controller';
 import { WageringController } from './wagering/wagering.controller';
+import { MetricsController } from './metrics/metrics.controller';
 
 @Module({
   imports: [ApplicationModule, SqsModule],
@@ -13,6 +14,7 @@ import { WageringController } from './wagering/wagering.controller';
     WageringController,
     ProviderWageringController,
     HealthController,
+    MetricsController,
   ],
 })
 export class HttpModule {}

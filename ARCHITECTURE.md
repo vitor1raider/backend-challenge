@@ -1,0 +1,258 @@
+# Arquitetura — Distributed Wagering Processor
+
+## 1. Objetivo
+
+O serviço processa operações financeiras de apostas entregues por HTTP e AWS SQS sob semântica at-least-once. O desenho prioriza precisão monetária, idempotência persistente, consistência entre saldo e ledger, concorrência por wallet e publicação confiável de eventos.
+
+As principais operações são `OPENING`, `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`.
+
+## 2. Stack e decisões principais
+
+| Decisão | Escolha | Motivação |
+|---|---|---|
+| Runtime e testes | Bun | Stack obrigatória e execução rápida da suíte |
+| Framework | NestJS | Composição modular, DI e integração HTTP |
+| Persistência | PostgreSQL | Constraints, transações e locks compartilhados entre instâncias |
+| ORM | MikroORM | Unit of Work, Identity Map, transações e locks explícitos |
+| Dinheiro | `decimal.js` no domínio e `numeric(15,2)` no banco | Evitar erros de ponto flutuante |
+| Mensageria | SQS FIFO via LocalStack | Entrada assíncrona, redelivery e DLQ locais |
+| Entrega de eventos | Transactional Outbox | Impedir publicação antes do commit financeiro |
+| Concorrência da wallet | Update condicionado por `version` com retry limitado | Evitar lost update sem lock global |
+
+## 3. Organização em camadas
+
+```text
+HTTP / SQS
+    │
+    ▼
+Application use cases
+    │
+    ▼
+Domain model
+    │
+    ▼
+MikroORM / PostgreSQL / Outbox
+```
+
+### Domínio
+
+`src/domain` contém `Money`, `Wallet`, `WalletLedgerEntry`, `WagerTransaction`, Inbox, Outbox e eventos. Essas classes não dependem de NestJS ou MikroORM. Construtores são privados e a criação ocorre por factories; `rehydrate` reconstrói estado persistido sem repetir transições de negócio.
+
+### Aplicação
+
+`src/application` coordena os fluxos:
+
+- criação e consulta de wallet;
+- paginação do ledger;
+- reconciliação;
+- processamento e consulta de wagers;
+- reprocessamento de referências pendentes.
+
+Os fluxos financeiros abrem uma transação do MikroORM e instanciam repositories com o mesmo `EntityManager`, mantendo wallet, wager, ledger, inbox e outbox dentro do mesmo limite transacional.
+
+### Infraestrutura
+
+`src/infrastructure` contém entities MikroORM, repositories, migrations, consumidor SQS, publisher da Outbox e logging estruturado.
+
+### Interfaces
+
+`src/interfaces/http` expõe DTOs e controllers. A validação global remove campos desconhecidos, rejeita propriedades não permitidas e transforma os DTOs antes de chamar os casos de uso.
+
+## 4. Modelo financeiro
+
+### Money
+
+`Money` recebe e serializa `amount` como string decimal com exatamente duas casas. Operações usam `Decimal`, retornam novas instâncias e rejeitam moedas diferentes. O domínio não usa `number` para representar dinheiro.
+
+Na persistência, valor e moeda ficam separados:
+
+```text
+amount   numeric(15,2)
+currency varchar(3)
+```
+
+### Wallet
+
+Uma wallet é identificada por UUID e existe no máximo uma vez para `(playerId, currency)`. Seu saldo nunca pode ser negativo. `version` começa em `1` e avança somente quando o saldo muda.
+
+Débito e crédito retornam um `WalletLedgerEntry` já validado. Isso mantém a alteração de saldo e a criação do lançamento conectadas no modelo de domínio.
+
+### Ledger
+
+Cada lançamento contém valor, direção, saldo anterior e saldo posterior. A factory valida:
+
+```text
+CREDIT: balanceBefore + amount = balanceAfter
+DEBIT:  balanceBefore - amount = balanceAfter
+```
+
+A constraint única `(walletId, transactionId)` limita cada transação financeira a um lançamento por wallet. `LOSS` e transações rejeitadas não geram lançamento.
+
+### WagerTransaction
+
+Estados persistidos:
+
+```text
+PENDING
+PENDING_REFERENCE
+PROCESSED
+REJECTED
+FAILED
+```
+
+`PROCESSED`, `REJECTED` e `FAILED` são terminais. O domínio controla as transições e armazena `failureCode`, referência interna, horário de processamento e saldo histórico observado.
+
+## 5. Regras das operações
+
+| Operação | Saldo | Ledger |
+|---|---|---|
+| `OPENING` | crédito interno | `CREDIT` |
+| `BET` | débito | `DEBIT` |
+| `WIN` | crédito | `CREDIT` |
+| `LOSS` | sem alteração | nenhum |
+| `REFUND` | crédito da BET referenciada | `CREDIT` |
+| `ROLLBACK` | inverso da referência | entrada invertida |
+
+Referências são resolvidas por `(providerId, referenceExternalTransactionId)`. O domínio valida provider, player, wallet, moeda, rodada, tipo e valor. Uma reversão que deixaria o saldo negativo recebe código diferente de uma aposta sem fundos.
+
+## 6. Atomicidade
+
+Os casos de uso financeiros executam dentro de `EntityManager.transactional()`. O objetivo do limite transacional é confirmar ou reverter conjuntamente:
+
+```text
+Inbox, quando aplicável
+WagerTransaction
+Wallet
+WalletLedgerEntry
+OutboxMessage(s)
+```
+
+Os repositories podem executar `flush`, mas, quando compartilham o `EntityManager` transacional do caso de uso, isso envia alterações ao banco sem confirmar a transação externa isoladamente.
+
+## 7. Concorrência
+
+A unidade de concorrência é a wallet. A atualização usa a condição:
+
+```sql
+where id = :walletId and version = :expectedVersion
+```
+
+Se nenhuma linha for alterada, o repository lança `WalletConcurrencyError`. O caso de uso repete a operação até três vezes, reabrindo a transação e recarregando o estado. Não existe lock global; wallets distintas podem progredir independentemente.
+
+Consultas de Outbox e referências pendentes utilizam `FOR UPDATE SKIP LOCKED` por meio de `PESSIMISTIC_PARTIAL_WRITE`, permitindo competição entre workers sem selecionar a mesma linha simultaneamente.
+
+## 8. Idempotência
+
+O header `Idempotency-Key` é a fonte da verdade na API. Um hash SHA-256 é calculado sobre JSON canônico dos campos de negócio, com chaves ordenadas.
+
+O fluxo é:
+
+1. consultar a chave persistida;
+2. se o hash divergir, retornar conflito;
+3. se o hash coincidir, retornar transaction ID, status, failure code e saldo histórico originais;
+4. se a chave não existir, processar e persistir a operação.
+
+O banco mantém unicidade para `idempotencyKey` e para `(providerId, externalTransactionId)`. Mensagens SQS também são deduplicadas por Inbox usando a chave composta `(consumerName, messageId)`.
+
+Limitação atual: a corrida de duas inserções simultâneas da mesma idempotency key ainda deve ser traduzida de violação única para replay, em vez de expor falha de infraestrutura à requisição perdedora.
+
+## 9. Referências fora de ordem
+
+Quando uma referência ainda não existe, a transação passa para `PENDING_REFERENCE`. O domínio agenda backoff exponencial a partir de 5 segundos, limitado a 1 hora, e usa TTL padrão de 24 horas.
+
+Ao expirar, a transação é rejeitada com `REFERENCE_NOT_FOUND` e produz evento de rejeição. O caso de uso usa locks com `SKIP LOCKED` para múltiplos workers.
+
+Limitação atual: o caso de uso está implementado, mas ainda não foi conectado a um scheduler do NestJS; portanto não há execução periódica automática.
+
+## 10. Inbox e consumo SQS
+
+O consumidor usa long polling, processa mensagens com o mesmo caso de uso da API e só remove a mensagem após retorno bem-sucedido. Falhas não recebem ack e voltam após o visibility timeout. A redrive policy move mensagens para DLQ depois do limite configurado.
+
+No shutdown, novas consultas são interrompidas e o consumidor aguarda as mensagens em andamento. O Inbox participa da mesma transação financeira, permitindo redelivery sem repetir efeitos confirmados.
+
+## 11. Transactional Outbox
+
+Eventos são convertidos em `OutboxMessage` e persistidos antes do commit. O publisher consulta mensagens vencidas, publica no SQS FIFO e então marca `publishedAt`. Falhas incrementam `attempts` e definem `nextAttemptAt` com backoff exponencial.
+
+O `eventId` é usado como `MessageDeduplicationId` e o aggregate como `MessageGroupId`. Se o processo morrer depois da aceitação pelo SQS e antes do commit de `publishedAt`, a publicação pode se repetir; essa janela é compatível com at-least-once e exige Inbox no consumidor.
+
+Trade-off atual: o publisher mantém a transação e o lock enquanto chama o SQS. Isso simplifica o claim concorrente, mas aumenta o tempo de retenção do lock. Uma evolução seria persistir lease (`lockId`, `lockedUntil`) em uma transação curta e publicar fora dela.
+
+## 12. Eventos
+
+Eventos mínimos implementados:
+
+- `WagerTransactionProcessed`, inclusive para `LOSS`;
+- `WagerTransactionRejected`;
+- `WagerTransactionPendingReference`;
+- `WalletBalanceChanged`, apenas quando o saldo muda.
+
+O envelope contém ID, tipo, versão, aggregate, correlação, causação, data ISO-8601 e payload JSON. Valores monetários são serializados como objetos com strings, nunca como instâncias de `Money`.
+
+## 13. API e códigos HTTP
+
+A API diferencia:
+
+- `201`: operação criada/processada;
+- `202`: referência pendente;
+- `400`: payload ou header inválido;
+- `404`: recurso não encontrado;
+- `409`: conflito de unicidade ou idempotência;
+- `422`: rejeição por regra de negócio;
+- `503`: dependência indisponível no readiness.
+
+## 14. Observabilidade
+
+O NestJS usa logger JSON. A abstração `Observability` aceita correlation ID, message ID, transaction ID, wallet ID, provider ID, aggregate ID e metadados de retry sem registrar o payload financeiro completo.
+
+Health checks separados:
+
+- `/health/live`: processo ativo;
+- `/health/ready`: PostgreSQL e SQS acessíveis.
+
+Limitação atual: `prom-client` está instalado, mas as métricas obrigatórias e o endpoint `/metrics` ainda não foram implementados.
+
+## 15. Reconciliação
+
+A reconciliação reconstrói o saldo a partir do ledger e o compara ao saldo materializado. Divergências não são corrigidas automaticamente; são devolvidas ao chamador e registradas em log estruturado.
+
+## 16. Autenticação
+
+Autenticação não foi implementada porque não pontua diretamente no desafio e o tempo foi priorizado para correção financeira. Em uma evolução, a identidade autenticada do provedor deve vir de um IdP OIDC e ser disponibilizada por uma porta como `ProviderIdentityPort`; o caso de uso deve comparar essa identidade com `providerId` em vez de confiar apenas no corpo.
+
+Health checks permanecem públicos e mensagens da fila são consideradas canal interno, sem dispensar as validações do provider no domínio.
+
+## 17. Testes
+
+A suíte atual cobre:
+
+- `Money`, wallet, ledger e operações de wager;
+- conflitos de moeda e payload divergente;
+- controllers e health checks;
+- persistência real em PostgreSQL;
+- atomicidade entre wallet, opening, ledger e outbox;
+- replay com saldo histórico;
+- duas apostas concorrentes disputando o mesmo saldo;
+- unicidade, rollback do ledger, Inbox e seleção da Outbox.
+
+Lacunas conhecidas:
+
+- migrations ainda não são aplicadas pelos testes; os schemas são criados a partir das entities;
+- não há integração real com LocalStack para redelivery, DLQ e publicação;
+- não há teste de 50 submissões da mesma operação;
+- não há teste com três processos independentes;
+- crash depois do commit e antes do ack não é simulado;
+- o fluxo completo de referência fora de ordem ainda não possui teste de integração.
+
+## 18. Limitações e próximos passos
+
+1. Conectar `ReprocessPendingReferencesUseCase` a um scheduler.
+2. Implementar e expor métricas Prometheus.
+3. Converter corrida de constraint idempotente em replay seguro.
+4. Sincronizar a migration com todos os índices declarados nas entities.
+5. Adicionar proteção de imutabilidade do ledger no schema.
+6. Adicionar foreign keys e checks financeiros complementares quando compatíveis com a estratégia de retenção.
+7. Criar testes reais de LocalStack, concorrência multiprocesso e recuperação após reinício.
+8. Introduzir portas de repository para reduzir o acoplamento da aplicação ao MikroORM.
+9. Substituir classificação por texto de erro por erros de domínio tipados.
+

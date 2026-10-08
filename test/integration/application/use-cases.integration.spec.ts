@@ -13,6 +13,7 @@ import { OutboxMessageEntity } from '../../../src/infrastructure/persistence/ent
 import { WagerTransactionEntity } from '../../../src/infrastructure/persistence/entities/wager-transaction.entity';
 import { WalletLedgerEntryEntity } from '../../../src/infrastructure/persistence/entities/wallet-ledger-entry.entity';
 import { WalletEntity } from '../../../src/infrastructure/persistence/entities/wallet.entity';
+import { MetricsService } from '../../../src/infrastructure/observability/metrics.service';
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
 const enabled = databaseUrl !== undefined && databaseUrl.trim().length > 0;
@@ -66,7 +67,8 @@ describe('Application use cases (PostgreSQL)', () => {
       initialBalance: { amount: '100.00', currency: 'BRL' },
       correlationId: randomUUID(),
     });
-    const useCase = new ProcessWagerTransactionUseCase(orm.em);
+    const metrics = new MetricsService();
+    const useCase = new ProcessWagerTransactionUseCase(orm.em, metrics);
     const base = {
       providerId: 'provider-a',
       playerId,
@@ -103,6 +105,12 @@ describe('Application use cases (PostgreSQL)', () => {
     expect(replay.transactionId).toBe(bet.transactionId);
     expect(replay.balance?.amount).toBe('75.00');
     expect(replay.idempotentReplay).toBe(true);
+    const metricOutput = await metrics.render();
+    expect(metricOutput).toContain('wager_transactions_total{status="PROCESSED"} 2');
+    expect(metricOutput).toContain('wager_idempotent_replays_total 1');
+    expect(metricOutput).toContain(
+      'wager_processing_duration_seconds_count{status="PROCESSED"} 3',
+    );
     expect(await orm.em.fork().count(WalletLedgerEntryEntity, { walletId: wallet.id })).toBe(3);
   });
 

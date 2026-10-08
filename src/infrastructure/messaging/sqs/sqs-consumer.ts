@@ -7,6 +7,7 @@ import {
 import {
   Inject,
   Injectable,
+  Optional,
   type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import {
 } from './sqs-infrastructure';
 import { WagerTransactionMessageHandler } from './wager-transaction-message.handler';
 import { Observability } from '../../observability/observability';
+import { MetricsService } from '../../observability/metrics.service';
 
 export interface SqsReceivedMessage {
   readonly messageId: string;
@@ -34,6 +36,7 @@ export interface SqsConsumerOptions {
   readonly queueUrl: string;
   readonly waitTimeSeconds: number;
   readonly visibilityTimeoutSeconds: number;
+  readonly maxReceiveCount?: number;
 }
 
 export class SqsConsumer {
@@ -46,6 +49,7 @@ export class SqsConsumer {
     private readonly handler: SqsMessageHandler,
     private readonly options: SqsConsumerOptions,
     private readonly observability: Observability,
+    private readonly metrics?: MetricsService,
   ) {}
 
   start(): void {
@@ -106,6 +110,10 @@ export class SqsConsumer {
   private async process(message: Message): Promise<void> {
     const received = normalizeMessage(message);
 
+    if (received.receiveCount > 1) {
+      this.metrics?.recordRetry('sqs');
+    }
+
     try {
       await this.handler.handle(received);
     } catch (error) {
@@ -121,6 +129,12 @@ export class SqsConsumer {
           acknowledged: false,
         },
       );
+      if (
+        this.options.maxReceiveCount !== undefined &&
+        received.receiveCount >= this.options.maxReceiveCount
+      ) {
+        this.metrics?.recordDlqMessage();
+      }
       return;
     }
 
@@ -182,6 +196,7 @@ export class WagerTransactionConsumer
     private readonly infrastructure: SqsInfrastructure,
     private readonly handler: WagerTransactionMessageHandler,
     private readonly observability: Observability,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -189,7 +204,8 @@ export class WagerTransactionConsumer
       queueUrl: this.infrastructure.wagerTransactionsUrl,
       waitTimeSeconds: this.config.waitTimeSeconds,
       visibilityTimeoutSeconds: this.config.visibilityTimeoutSeconds,
-    }, this.observability);
+      maxReceiveCount: this.config.maxReceiveCount,
+    }, this.observability, this.metrics);
     this.consumer.start();
   }
 
