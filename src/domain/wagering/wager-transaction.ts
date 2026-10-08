@@ -56,6 +56,10 @@ export interface WagerTransactionState {
   referenceTransactionId: string | undefined;
   failureCode: FailureCode | undefined;
   processedAt: Date | undefined;
+  resultBalance: Money | undefined;
+  referenceAttempts?: number;
+  nextReferenceAttempt?: Date | undefined;
+  referenceExpiresAt?: Date | undefined;
 }
 
 export class WagerTransaction {
@@ -77,23 +81,18 @@ export class WagerTransaction {
     private _referenceTransactionId?: string,
     private _failureCode?: FailureCode,
     private _processedAt?: Date,
+    private _resultBalance?: Money,
+    private _referenceAttempts = 0,
+    private _nextReferenceAttempt?: Date,
+    private _referenceExpiresAt?: Date,
   ) {}
 
-  // - A transação nasce em PENDING.
-  // - REFUND exige referenceExternalTransactionId.
-  // - ROLLBACK exige referenceExternalTransactionId.
-  // - Referência vazia ou cercada por espaços é rejeitada.
-  // - WIN pode ter referência opcional.
-  // - OPENING pode ser criado internamente.
   static create(props: CreateWagerTransactionProps): WagerTransaction {
-    // verficar se o tipo de transação exige uma referência e se a referência é válida
     const requiresReference =
       props.kind === WagerTransactionKind.Refund ||
       props.kind === WagerTransactionKind.Rollback;
 
-    // verificar se a referência é válida
     const referenceExternalTransactionId = props.referenceExternalTransactionId;
-    // referência válida se não for undefined, não for vazia e não tiver espaços em branco
     const hasValidReference =
       referenceExternalTransactionId !== undefined &&
       referenceExternalTransactionId.length > 0 &&
@@ -149,6 +148,10 @@ export class WagerTransaction {
       state.processedAt === undefined
         ? undefined
         : new Date(state.processedAt.getTime()),
+      state.resultBalance,
+      state.referenceAttempts ?? 0,
+      state.nextReferenceAttempt,
+      state.referenceExpiresAt,
     );
   }
 
@@ -164,8 +167,22 @@ export class WagerTransaction {
   get processedAt(): Date | undefined {
     return this._processedAt;
   }
+  get resultBalance(): Money | undefined {
+    return this._resultBalance;
+  }
+  get referenceAttempts(): number { return this._referenceAttempts; }
+  get nextReferenceAttempt(): Date | undefined {
+    return this._nextReferenceAttempt === undefined ? undefined : new Date(this._nextReferenceAttempt);
+  }
+  get referenceExpiresAt(): Date | undefined {
+    return this._referenceExpiresAt === undefined ? undefined : new Date(this._referenceExpiresAt);
+  }
 
-  markProcessed(referenceTransactionId: string | undefined, at: Date): void {
+  markProcessed(
+    referenceTransactionId: string | undefined,
+    at: Date,
+    resultBalance?: Money,
+  ): void {
     this.assertCanTransitionTo(WagerTransactionStatus.Processed);
 
     if (!(at instanceof Date) || Number.isNaN(at.getTime())) {
@@ -188,6 +205,7 @@ export class WagerTransaction {
     this._status = WagerTransactionStatus.Processed;
     this._referenceTransactionId = referenceTransactionId;
     this._processedAt = new Date(at.getTime());
+    this._resultBalance = resultBalance;
   }
 
   markPendingReference(): void {
@@ -202,10 +220,25 @@ export class WagerTransaction {
     this._status = WagerTransactionStatus.PendingReference;
   }
 
-  reject(code: FailureCode): void {
+  scheduleReferenceRetry(now: Date, ttlMilliseconds = 86_400_000): void {
+    if (this._status !== WagerTransactionStatus.PendingReference) {
+      throw new Error('Somente uma transação com referência pendente pode ser reagendada');
+    }
+    this._referenceAttempts += 1;
+    const delay = Math.min(5_000 * 2 ** (this._referenceAttempts - 1), 3_600_000);
+    this._nextReferenceAttempt = new Date(now.getTime() + delay);
+    this._referenceExpiresAt ??= new Date(this.createdAt.getTime() + ttlMilliseconds);
+  }
+
+  isReferenceExpired(at: Date): boolean {
+    return this._referenceExpiresAt !== undefined && this._referenceExpiresAt.getTime() <= at.getTime();
+  }
+
+  reject(code: FailureCode, resultBalance?: Money): void {
     this.assertCanTransitionTo(WagerTransactionStatus.Rejected);
     this._failureCode = code;
     this._status = WagerTransactionStatus.Rejected;
+    this._resultBalance = resultBalance;
   }
 
   fail(code: FailureCode): void {

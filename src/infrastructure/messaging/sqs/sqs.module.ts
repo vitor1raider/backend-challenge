@@ -10,8 +10,10 @@ import {
   SqsInfrastructure,
 } from './sqs-infrastructure';
 import { WagerTransactionMessageHandler } from './wager-transaction-message.handler';
+import { ApplicationModule } from '../../../application/application.module';
 
 @Module({
+  imports: [ApplicationModule],
   providers: [
     {
       provide: SQS_CONFIG,

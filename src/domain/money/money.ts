@@ -1,12 +1,12 @@
 import Decimal from 'decimal.js';
 
-interface MoneyProps {
+export interface MoneyProps {
   amount: string;
   currency: string;
 }
 
-const AMOUNT_FORMAT = /^(?:0|[1-9]\d{0,12})\.\d{2}$/; // Serializado como string decimal, sempre com escala fixa de 2 casas
-const CURRENCY_FORMAT_ISO = /^[A-Z]{3}$/; // ISO-4217
+const AMOUNT_FORMAT = /^(?:0|[1-9]\d{0,12})\.\d{2}$/;
+const CURRENCY_FORMAT_ISO = /^[A-Z]{3}$/;
 
 export class Money {
   private constructor(
@@ -14,7 +14,6 @@ export class Money {
     public readonly currency: string,
   ) {}
 
-  // Factory que controla a criação
   static from(props: MoneyProps): Money {
     if (!AMOUNT_FORMAT.test(props.amount)) {
       throw new Error('Valor monetário inválido');
@@ -83,7 +82,6 @@ export class Money {
     return this.value.toFixed(2);
   }
 
-  // assertSameCurrency serve para garantir que dois valores monetários estejam na mesma moeda antes de realizar uma operação entre eles.
   private assertSameCurrency(other: Money): void {
     if (this.currency !== other.currency) {
       throw new Error('Moedas incompatíveis');

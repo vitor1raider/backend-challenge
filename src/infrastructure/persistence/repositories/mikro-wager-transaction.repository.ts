@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { LockMode } from '@mikro-orm/core';
 import { EntityManager } from '@mikro-orm/postgresql';
 import { FailureCode, WagerTransactionKind, WagerTransactionStatus } from '../../../domain/enums';
 import { Money } from '../../../domain/money/money';
@@ -37,6 +38,22 @@ export class MikroWagerTransactionRepository {
         status: WagerTransactionStatus.Processed,
       })) > 0
     );
+  }
+
+  async findPendingReferencesDueForUpdate(now: Date, limit = 100): Promise<WagerTransaction[]> {
+    const entities = await this.entityManager.find(
+      WagerTransactionEntity,
+      {
+        status: WagerTransactionStatus.PendingReference,
+        nextReferenceAttempt: { $lte: now },
+      },
+      {
+        limit,
+        orderBy: { nextReferenceAttempt: 'asc', createdAt: 'asc' },
+        lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE,
+      },
+    );
+    return entities.map((entity) => this.toDomain(entity));
   }
 
   async save(transaction: WagerTransaction): Promise<void> {
@@ -88,6 +105,13 @@ export class MikroWagerTransactionRepository {
       referenceTransactionId: entity.referenceTransactionId ?? undefined,
       failureCode: (entity.failureCode as FailureCode | null) ?? undefined,
       processedAt: entity.processedAt ?? undefined,
+      resultBalance:
+        entity.resultBalance == null
+          ? undefined
+          : Money.from({ amount: entity.resultBalance, currency: entity.currency }),
+      referenceAttempts: entity.referenceAttempts,
+      nextReferenceAttempt: entity.nextReferenceAttempt ?? undefined,
+      referenceExpiresAt: entity.referenceExpiresAt ?? undefined,
     });
   }
 
@@ -111,6 +135,10 @@ export class MikroWagerTransactionRepository {
       referenceTransactionId: transaction.referenceTransactionId ?? null,
       failureCode: transaction.failureCode ?? null,
       processedAt: transaction.processedAt ?? null,
+      resultBalance: transaction.resultBalance?.toString() ?? null,
+      referenceAttempts: transaction.referenceAttempts,
+      nextReferenceAttempt: transaction.nextReferenceAttempt ?? null,
+      referenceExpiresAt: transaction.referenceExpiresAt ?? null,
       createdAt: transaction.createdAt,
       updatedAt: transaction.processedAt ?? transaction.createdAt,
     };

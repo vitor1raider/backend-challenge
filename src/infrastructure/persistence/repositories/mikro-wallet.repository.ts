@@ -77,6 +77,36 @@ export class MikroWalletRepository {
     });
   }
 
+  async findLedgerPage(
+    walletId: string,
+    limit: number,
+    cursor?: { createdAt: Date; id: string },
+  ): Promise<WalletLedgerEntry[]> {
+    const where = cursor === undefined
+      ? { walletId }
+      : {
+          walletId,
+          $or: [
+            { createdAt: { $gt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { $gt: cursor.id } },
+          ],
+        };
+    const entities = await this.entityManager.find(WalletLedgerEntryEntity, where, {
+      orderBy: { createdAt: 'asc', id: 'asc' },
+      limit,
+    });
+    return entities.map((entity) => this.ledgerToDomain(entity));
+  }
+
+  async findAllLedgerEntries(walletId: string): Promise<WalletLedgerEntry[]> {
+    const entities = await this.entityManager.find(
+      WalletLedgerEntryEntity,
+      { walletId },
+      { orderBy: { createdAt: 'asc', id: 'asc' } },
+    );
+    return entities.map((entity) => this.ledgerToDomain(entity));
+  }
+
   private toDomain(entity: WalletEntity): Wallet {
     return Wallet.rehydrate({
       id: entity.id,
@@ -116,5 +146,18 @@ export class MikroWalletRepository {
       balanceAfter: entry.balanceAfter.toString(),
       createdAt: entry.createdAt,
     };
+  }
+
+  private ledgerToDomain(entity: WalletLedgerEntryEntity): WalletLedgerEntry {
+    return WalletLedgerEntry.rehydrate({
+      id: entity.id,
+      walletId: entity.walletId,
+      transactionId: entity.transactionId,
+      direction: entity.direction,
+      money: Money.from({ amount: entity.amount, currency: entity.currency }),
+      balanceBefore: Money.from({ amount: entity.balanceBefore, currency: entity.currency }),
+      balanceAfter: Money.from({ amount: entity.balanceAfter, currency: entity.currency }),
+      createdAt: entity.createdAt,
+    });
   }
 }
