@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core';
 import { Injectable } from '@nestjs/common';
 import { EntityManager } from '@mikro-orm/postgresql';
 import { OutboxMessage } from '../../../domain/outbox/outbox-message';
@@ -14,6 +15,22 @@ export class MikroOutboxRepository {
   }
 
   async findDue(now: Date, limit = 100): Promise<OutboxMessage[]> {
+    return this.findDueWithOptions(now, limit);
+  }
+
+  async findDueForUpdate(now: Date, limit = 100): Promise<OutboxMessage[]> {
+    return this.findDueWithOptions(
+      now,
+      limit,
+      LockMode.PESSIMISTIC_PARTIAL_WRITE,
+    );
+  }
+
+  private async findDueWithOptions(
+    now: Date,
+    limit: number,
+    lockMode?: LockMode.PESSIMISTIC_PARTIAL_WRITE,
+  ): Promise<OutboxMessage[]> {
     const entities = await this.entityManager.find(
       OutboxMessageEntity,
       {
@@ -26,6 +43,7 @@ export class MikroOutboxRepository {
       {
         limit,
         orderBy: { occurredAt: 'asc' },
+        ...(lockMode === undefined ? {} : { lockMode }),
       },
     );
 
