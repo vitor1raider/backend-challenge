@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { LedgerDirection } from '../../../../src/domain/enums/ledger-direction';
 import { Money } from '../../../../src/domain/money/money';
-import {
-  LedgerDirection,
-  WalletLedgerEntry,
-} from '../../../../src/domain/wallet/wallet-ledger-entry';
+import { WalletLedgerEntry } from '../../../../src/domain/wallet/wallet-ledger-entry';
 
 const money = (amount: string): Money => {
   return Money.from({ amount, currency: 'BRL' });

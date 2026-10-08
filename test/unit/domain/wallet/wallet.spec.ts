@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { LedgerDirection } from '../../../../src/domain/enums/ledger-direction';
 import { Money } from '../../../../src/domain/money/money';
-import { LedgerDirection } from '../../../../src/domain/wallet/wallet-ledger-entry';
 import { Wallet } from '../../../../src/domain/wallet/wallet';
 
 const WALLET_ID = 'wallet-1';

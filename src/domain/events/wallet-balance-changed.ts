@@ -1,8 +1,6 @@
 import type { Wallet } from '../wallet/wallet';
-import type {
-  LedgerDirection,
-  WalletLedgerEntry,
-} from '../wallet/wallet-ledger-entry';
+import type { LedgerDirection } from '../enums/ledger-direction';
+import type { WalletLedgerEntry } from '../wallet/wallet-ledger-entry';
 import {
   IntegrationEvent,
   type EventContext,

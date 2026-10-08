@@ -1,5 +1,16 @@
 import type { Money } from '../money/money';
-import { LedgerDirection } from '../wallet/wallet-ledger-entry';
+import {
+  FailureCode,
+  LedgerDirection,
+  WagerTransactionKind,
+  WagerTransactionStatus,
+} from '../enums';
+
+export {
+  FailureCode,
+  WagerTransactionKind,
+  WagerTransactionStatus,
+} from '../enums';
 
 export class InvalidTransactionStateError extends Error {
   constructor(
@@ -9,38 +20,6 @@ export class InvalidTransactionStateError extends Error {
     super(`Transição inválida de ${currentStatus} para ${targetStatus}`);
     this.name = 'InvalidTransactionStateError';
   }
-}
-
-export enum WagerTransactionKind {
-  Opening = 'OPENING', // interno: crédito de abertura da wallet
-  Bet = 'BET',
-  Win = 'WIN',
-  Loss = 'LOSS',
-  Refund = 'REFUND',
-  Rollback = 'ROLLBACK',
-}
-
-export enum WagerTransactionStatus {
-  Pending = 'PENDING', // aceita, ainda não aplicada
-  PendingReference = 'PENDING_REFERENCE', // aguardando a transação referenciada
-  Processed = 'PROCESSED', // aplicada (terminal)
-  Rejected = 'REJECTED', // violação de regra de negócio (terminal)
-  Failed = 'FAILED', // erro permanente de infraestrutura (terminal, auditável)
-}
-
-export enum FailureCode {
-  InsufficientFunds = 'INSUFFICIENT_FUNDS',
-  CurrencyMismatch = 'CURRENCY_MISMATCH',
-  WalletNotFound = 'WALLET_NOT_FOUND',
-  ReferenceNotFound = 'REFERENCE_NOT_FOUND',
-  ReferenceNotProcessed = 'REFERENCE_NOT_PROCESSED',
-  InvalidReferenceKind = 'INVALID_REFERENCE_KIND',
-  ReferenceContextMismatch = 'REFERENCE_CONTEXT_MISMATCH',
-  ReferenceAmountMismatch = 'REFERENCE_AMOUNT_MISMATCH',
-  ReferenceAlreadyRefunded = 'REFERENCE_ALREADY_REFUNDED',
-  ReferenceAlreadyRolledBack = 'REFERENCE_ALREADY_ROLLED_BACK',
-  ReversalWouldCauseNegativeBalance = 'REVERSAL_WOULD_CAUSE_NEGATIVE_BALANCE',
-  PermanentInfrastructureFailure = 'PERMANENT_INFRASTRUCTURE_FAILURE',
 }
 
 export interface CreateWagerTransactionProps {

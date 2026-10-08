@@ -2,13 +2,15 @@ import { describe, expect, it } from 'bun:test';
 import { Money } from '../../../../src/domain/money/money';
 import {
   FailureCode,
-  InvalidTransactionStateError,
-  WagerTransaction,
+  LedgerDirection,
   WagerTransactionKind,
   WagerTransactionStatus,
+} from '../../../../src/domain/enums';
+import {
+  InvalidTransactionStateError,
+  WagerTransaction,
   type CreateWagerTransactionProps,
 } from '../../../../src/domain/wagering/wager-transaction';
-import { LedgerDirection } from '../../../../src/domain/wallet/wallet-ledger-entry';
 
 const PROCESSED_AT = new Date('2026-10-07T12:00:00.000Z');
 

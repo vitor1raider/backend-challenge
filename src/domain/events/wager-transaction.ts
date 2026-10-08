@@ -4,10 +4,10 @@ import {
 } from './integration-event';
 import {
   FailureCode,
-  WagerTransaction,
   WagerTransactionKind,
   WagerTransactionStatus,
-} from '../wagering/wager-transaction';
+} from '../enums';
+import { WagerTransaction } from '../wagering/wager-transaction';
 
 export interface EventMoney {
   amount: string;

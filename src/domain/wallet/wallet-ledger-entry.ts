@@ -1,9 +1,7 @@
 import type { Money } from '../money/money';
+import { LedgerDirection } from '../enums/ledger-direction';
 
-export enum LedgerDirection {
-  Debit = 'DEBIT',
-  Credit = 'CREDIT',
-}
+export { LedgerDirection } from '../enums/ledger-direction';
 
 export interface CreateLedgerEntryProps {
   id: string;

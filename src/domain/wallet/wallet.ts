@@ -1,8 +1,6 @@
 import { Money } from '../money/money';
-import {
-  LedgerDirection,
-  WalletLedgerEntry,
-} from './wallet-ledger-entry';
+import { LedgerDirection } from '../enums/ledger-direction';
+import { WalletLedgerEntry } from './wallet-ledger-entry';
 
 export interface WalletMovement {
   id: string;
