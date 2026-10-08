@@ -4,6 +4,13 @@ import { WalletNotFoundError } from './get-wallet.use-case';
 
 export interface LedgerPageQuery { readonly walletId: string; readonly cursor?: string; readonly limit?: number }
 
+export class InvalidLedgerCursorError extends Error {
+  constructor() {
+    super('Cursor de ledger inválido');
+    this.name = 'InvalidLedgerCursorError';
+  }
+}
+
 @Injectable()
 export class GetWalletLedgerUseCase {
   constructor(private readonly wallets: MikroWalletRepository) {}
@@ -40,6 +47,6 @@ function decodeCursor(cursor?: string): { createdAt: Date; id: string } | undefi
     if (typeof value.id !== 'string' || value.id.length === 0 || Number.isNaN(createdAt.getTime())) throw new Error();
     return { createdAt, id: value.id };
   } catch {
-    throw new Error('Cursor de ledger inválido');
+    throw new InvalidLedgerCursorError();
   }
 }

@@ -29,5 +29,6 @@ import { ApplicationModule } from '../../../application/application.module';
     WagerTransactionConsumer,
     SqsOutboxPublisher,
   ],
+  exports: [SQS_CLIENT, SqsInfrastructure],
 })
 export class SqsModule {}

@@ -4,6 +4,7 @@ import mikroOrmConfig from '../mikro-orm.config';
 import { SqsModule } from './infrastructure/messaging/sqs';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { ApplicationModule } from './application/application.module';
+import { HttpModule } from './interfaces/http/http.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { ApplicationModule } from './application/application.module';
     }),
     PersistenceModule,
     ApplicationModule,
+    HttpModule,
     SqsModule,
   ],
 })
