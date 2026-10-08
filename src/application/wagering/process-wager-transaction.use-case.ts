@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { UniqueConstraintViolationException } from '@mikro-orm/core';
 import { EntityManager } from '@mikro-orm/postgresql';
 import { Injectable } from '@nestjs/common';
 import { FailureCode, LedgerDirection, WagerTransactionKind, type WagerTransactionStatus } from '../../domain/enums';
@@ -62,6 +63,19 @@ export class ProcessWagerTransactionUseCase {
       try {
         return await this.executeOnce(command);
       } catch (error) {
+        if (error instanceof UniqueConstraintViolationException) {
+          const existing = await new MikroWagerTransactionRepository(
+            this.entityManager.fork(),
+          ).findByIdempotencyKey(command.idempotencyKey);
+
+          if (existing !== null) {
+            const payloadHash = hashWagerTransactionPayload(command.data);
+            if (!existing.matchesPayload(payloadHash)) {
+              throw new IdempotencyConflictError(command.idempotencyKey);
+            }
+            return resultFrom(existing, true);
+          }
+        }
         if (!(error instanceof WalletConcurrencyError) || attempt === 3) throw error;
       }
     }
