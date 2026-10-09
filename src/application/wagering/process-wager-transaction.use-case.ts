@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { UniqueConstraintViolationException } from '@mikro-orm/core';
-import { EntityManager } from '@mikro-orm/postgresql';
 import { Injectable, Optional } from '@nestjs/common';
 import { FailureCode, LedgerDirection, WagerTransactionKind, type WagerTransactionStatus } from '../../domain/enums';
 import type { IntegrationEvent } from '../../domain/events/integration-event';
@@ -13,8 +12,9 @@ import { WagerTransaction } from '../../domain/wagering/wager-transaction';
 import { MikroOutboxRepository } from '../../infrastructure/persistence/repositories/mikro-outbox.repository';
 import { MikroInboxMessageRepository } from '../../infrastructure/persistence/repositories/mikro-inbox-message.repository';
 import { MikroWagerTransactionRepository } from '../../infrastructure/persistence/repositories/mikro-wager-transaction.repository';
-import { MikroWalletRepository, WalletConcurrencyError } from '../../infrastructure/persistence/repositories/mikro-wallet.repository';
+import { WalletConcurrencyError } from '../../infrastructure/persistence/repositories/mikro-wallet.repository';
 import { MetricsService } from '../../infrastructure/observability/metrics.service';
+import { MikroUnitOfWork } from '../../infrastructure/persistence/mikro-unit-of-work';
 
 export interface WagerTransactionInput {
   readonly providerId: string;
@@ -58,7 +58,7 @@ export class IdempotencyConflictError extends Error {
 @Injectable()
 export class ProcessWagerTransactionUseCase {
   constructor(
-    private readonly entityManager: EntityManager,
+    private readonly unitOfWork: MikroUnitOfWork,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -79,9 +79,9 @@ export class ProcessWagerTransactionUseCase {
         return result;
       } catch (error) {
         if (error instanceof UniqueConstraintViolationException) {
-          const existing = await new MikroWagerTransactionRepository(
-            this.entityManager.fork(),
-          ).findByIdempotencyKey(command.idempotencyKey);
+          const existing = await this.unitOfWork.read(({ wagerTransactions }) =>
+            wagerTransactions.findByIdempotencyKey(command.idempotencyKey),
+          );
 
           if (existing !== null) {
             const payloadHash = hashWagerTransactionPayload(command.data);
@@ -110,11 +110,12 @@ export class ProcessWagerTransactionUseCase {
 
   private async executeOnce(command: ProcessWagerTransactionCommand): Promise<ProcessWagerTransactionResult> {
     const payloadHash = hashWagerTransactionPayload(command.data);
-    return this.entityManager.fork().transactional(async (em) => {
-      const wagers = new MikroWagerTransactionRepository(em);
-      const wallets = new MikroWalletRepository(em);
-      const outbox = new MikroOutboxRepository(em);
-      const inboxRepository = new MikroInboxMessageRepository(em);
+    return this.unitOfWork.transactional(async ({
+      wagerTransactions: wagers,
+      wallets,
+      outboxMessages: outbox,
+      inboxMessages: inboxRepository,
+    }) => {
       const existingInbox = command.inbox === undefined
         ? null
         : await inboxRepository.find(command.inbox.messageId, command.inbox.consumerName);

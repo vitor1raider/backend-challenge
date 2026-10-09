@@ -9,6 +9,7 @@ import { ReconcileWalletUseCase } from './wallet/reconcile-wallet.use-case';
 import { GetProviderWagerTransactionUseCase, GetWagerTransactionUseCase } from './wagering/get-wager-transaction.use-case';
 import { ProcessWagerTransactionUseCase } from './wagering/process-wager-transaction.use-case';
 import { ReprocessPendingReferencesUseCase } from './wagering/reprocess-pending-references.use-case';
+import { PendingReferenceScheduler } from './wagering/pending-reference.scheduler';
 
 const useCases = [
   CreateWalletUseCase,
@@ -23,7 +24,7 @@ const useCases = [
 
 @Module({
   imports: [PersistenceModule],
-  providers: [Observability, MetricsService, ...useCases],
+  providers: [Observability, MetricsService, PendingReferenceScheduler, ...useCases],
   exports: [Observability, MetricsService, ...useCases],
 })
 export class ApplicationModule {}

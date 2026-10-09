@@ -8,7 +8,7 @@ import { WalletLedgerEntryEntity } from '../entities/wallet-ledger-entry.entity'
 
 export class WalletConcurrencyError extends Error {
   constructor(walletId: string) {
-    super(`Wallet ${walletId} was modified concurrently`);
+    super(`A wallet ${walletId} foi modificada de forma concorrente`);
     this.name = 'WalletConcurrencyError';
   }
 }

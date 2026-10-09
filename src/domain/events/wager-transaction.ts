@@ -78,7 +78,7 @@ export class WagerTransactionProcessed extends IntegrationEvent<WagerTransaction
   ): WagerTransactionProcessed {
     if (transaction.status !== WagerTransactionStatus.Processed) {
       throw new Error(
-        'WagerTransactionProcessed requires a transaction with status Processed',
+        'WagerTransactionProcessed exige uma transação com status Processed',
       );
     }
 
@@ -94,7 +94,7 @@ export class WagerTransactionProcessed extends IntegrationEvent<WagerTransaction
       transaction.processedAt === undefined
     ) {
       throw new Error(
-        'WagerTransactionProcessed requires a processed transaction',
+        'WagerTransactionProcessed exige uma transação processada',
       );
     }
 
@@ -138,13 +138,13 @@ export class WagerTransactionRejected extends IntegrationEvent<WagerTransactionR
   ): WagerTransactionRejected {
     if (transaction.status !== WagerTransactionStatus.Rejected) {
       throw new Error(
-        'WagerTransactionRejected requires a transaction with status Rejected',
+        'WagerTransactionRejected exige uma transação com status Rejected',
       );
     }
 
     if (transaction.failureCode === undefined) {
       throw new Error(
-        'WagerTransactionRejected requires a transaction with a failure code',
+        'WagerTransactionRejected exige uma transação com código de falha',
       );
     }
 
@@ -160,7 +160,7 @@ export class WagerTransactionRejected extends IntegrationEvent<WagerTransactionR
       transaction.failureCode === undefined
     ) {
       throw new Error(
-        'WagerTransactionRejected requires a rejected transaction with a failure code',
+        'WagerTransactionRejected exige uma transação rejeitada com código de falha',
       );
     }
 
@@ -204,13 +204,13 @@ export class WagerTransactionPendingReference extends IntegrationEvent<WagerTran
   ): WagerTransactionPendingReference {
     if (transaction.status !== WagerTransactionStatus.PendingReference) {
       throw new Error(
-        'WagerTransactionPendingReference requires a transaction with status PendingReference',
+        'WagerTransactionPendingReference exige uma transação com status PendingReference',
       );
     }
 
     if (transaction.referenceExternalTransactionId === undefined) {
       throw new Error(
-        'WagerTransactionPendingReference requires a transaction with a reference external transaction ID',
+        'WagerTransactionPendingReference exige uma transação com ID externo de referência',
       );
     }
 
@@ -230,7 +230,7 @@ export class WagerTransactionPendingReference extends IntegrationEvent<WagerTran
       transaction.referenceExternalTransactionId === undefined
     ) {
       throw new Error(
-        'WagerTransactionPendingReference requires a transaction awaiting a reference',
+        'WagerTransactionPendingReference exige uma transação aguardando uma referência',
       );
     }
 

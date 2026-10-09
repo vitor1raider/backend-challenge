@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import mikroOrmConfig from '../mikro-orm.config';
 import { SqsModule } from './infrastructure/messaging/sqs';
@@ -12,6 +13,7 @@ import { HttpModule } from './interfaces/http/http.module';
       ...mikroOrmConfig,
       autoLoadEntities: true,
     }),
+    ScheduleModule.forRoot(),
     PersistenceModule,
     ApplicationModule,
     HttpModule,

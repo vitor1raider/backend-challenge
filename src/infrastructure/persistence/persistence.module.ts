@@ -9,6 +9,7 @@ import { MikroInboxMessageRepository } from './repositories/mikro-inbox-message.
 import { MikroOutboxRepository } from './repositories/mikro-outbox.repository';
 import { MikroWagerTransactionRepository } from './repositories/mikro-wager-transaction.repository';
 import { MikroWalletRepository } from './repositories/mikro-wallet.repository';
+import { MikroUnitOfWork } from './mikro-unit-of-work';
 
 const entities = [
   WalletEntity,
@@ -19,6 +20,7 @@ const entities = [
 ];
 
 const repositories = [
+  MikroUnitOfWork,
   MikroWalletRepository,
   MikroWagerTransactionRepository,
   MikroInboxMessageRepository,

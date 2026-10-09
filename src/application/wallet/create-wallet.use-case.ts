@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { EntityManager } from '@mikro-orm/postgresql';
 import { UniqueConstraintViolationException } from '@mikro-orm/core';
 import { Injectable } from '@nestjs/common';
 import { LedgerDirection, WagerTransactionKind } from '../../domain/enums';
@@ -10,9 +9,7 @@ import { OutboxMessage } from '../../domain/outbox/outbox-message';
 import { WagerTransaction } from '../../domain/wagering/wager-transaction';
 import { Wallet } from '../../domain/wallet/wallet';
 import { WalletLedgerEntry } from '../../domain/wallet/wallet-ledger-entry';
-import { MikroOutboxRepository } from '../../infrastructure/persistence/repositories/mikro-outbox.repository';
-import { MikroWagerTransactionRepository } from '../../infrastructure/persistence/repositories/mikro-wager-transaction.repository';
-import { MikroWalletRepository } from '../../infrastructure/persistence/repositories/mikro-wallet.repository';
+import { MikroUnitOfWork } from '../../infrastructure/persistence/mikro-unit-of-work';
 
 export interface CreateWalletCommand {
   readonly playerId: string;
@@ -36,14 +33,15 @@ export class WalletAlreadyExistsError extends Error {
 
 @Injectable()
 export class CreateWalletUseCase {
-  constructor(private readonly entityManager: EntityManager) {}
+  constructor(private readonly unitOfWork: MikroUnitOfWork) {}
 
   async execute(command: CreateWalletCommand): Promise<WalletResult> {
     try {
-      return await this.entityManager.fork().transactional(async (em) => {
-      const wallets = new MikroWalletRepository(em);
-      const wagers = new MikroWagerTransactionRepository(em);
-      const outbox = new MikroOutboxRepository(em);
+      return await this.unitOfWork.transactional(async ({
+        wallets,
+        wagerTransactions: wagers,
+        outboxMessages: outbox,
+      }) => {
       const initialBalance = Money.from(command.initialBalance);
       if (await wallets.findByPlayerAndCurrency(command.playerId, initialBalance.currency)) {
         throw new WalletAlreadyExistsError(command.playerId, initialBalance.currency);

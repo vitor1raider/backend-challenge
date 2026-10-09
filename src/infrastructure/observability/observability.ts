@@ -12,6 +12,7 @@ export interface ObservabilityContext {
   readonly attempt?: number;
   readonly acknowledged?: boolean;
   readonly retryScheduled?: boolean;
+  readonly retryVisibilityTimeout?: number;
 }
 
 interface ErrorLog {

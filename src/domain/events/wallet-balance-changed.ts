@@ -51,15 +51,15 @@ export class WalletBalanceChanged extends IntegrationEvent<WalletBalanceChangedD
     context: EventContext,
   ): WalletBalanceChanged {
     if (entry.walletId !== wallet.id) {
-      throw new Error('Ledger entry does not belong to the wallet');
+      throw new Error('O lançamento do ledger não pertence à wallet');
     }
 
     if (!entry.isBalanced()) {
-      throw new Error('Ledger entry must be balanced');
+      throw new Error('O lançamento do ledger deve estar balanceado');
     }
 
     if (!wallet.balance.equals(entry.balanceAfter)) {
-      throw new Error('Wallet balance must match the ledger final balance');
+      throw new Error('O saldo da wallet deve corresponder ao saldo final do ledger');
     }
 
     return new WalletBalanceChanged(wallet, entry, context);
@@ -71,15 +71,15 @@ export class WalletBalanceChanged extends IntegrationEvent<WalletBalanceChangedD
     context: EventContext,
   ): WalletBalanceChanged {
     if (entry.walletId !== wallet.id) {
-      throw new Error('Ledger entry does not belong to the wallet');
+      throw new Error('O lançamento do ledger não pertence à wallet');
     }
 
     if (!entry.isBalanced()) {
-      throw new Error('Ledger entry must be balanced');
+      throw new Error('O lançamento do ledger deve estar balanceado');
     }
 
     if (!wallet.balance.equals(entry.balanceAfter)) {
-      throw new Error('Wallet balance must match the ledger final balance');
+      throw new Error('O saldo da wallet deve corresponder ao saldo final do ledger');
     }
 
     return new WalletBalanceChanged(wallet, entry, context);

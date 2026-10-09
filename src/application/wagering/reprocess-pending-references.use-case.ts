@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { EntityManager } from '@mikro-orm/postgresql';
 import { Injectable, Optional } from '@nestjs/common';
 import { FailureCode, LedgerDirection, WagerTransactionKind } from '../../domain/enums';
 import type { IntegrationEvent } from '../../domain/events/integration-event';
@@ -9,8 +8,8 @@ import { OutboxMessage } from '../../domain/outbox/outbox-message';
 import type { WagerTransaction } from '../../domain/wagering/wager-transaction';
 import { MikroOutboxRepository } from '../../infrastructure/persistence/repositories/mikro-outbox.repository';
 import { MikroWagerTransactionRepository } from '../../infrastructure/persistence/repositories/mikro-wager-transaction.repository';
-import { MikroWalletRepository } from '../../infrastructure/persistence/repositories/mikro-wallet.repository';
 import { MetricsService } from '../../infrastructure/observability/metrics.service';
+import { MikroUnitOfWork } from '../../infrastructure/persistence/mikro-unit-of-work';
 
 export interface ReprocessPendingReferencesResult {
   readonly selected: number;
@@ -22,15 +21,16 @@ export interface ReprocessPendingReferencesResult {
 @Injectable()
 export class ReprocessPendingReferencesUseCase {
   constructor(
-    private readonly entityManager: EntityManager,
+    private readonly unitOfWork: MikroUnitOfWork,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   async execute(now = new Date(), limit = 100): Promise<ReprocessPendingReferencesResult> {
-    return this.entityManager.fork().transactional(async (em) => {
-      const wagers = new MikroWagerTransactionRepository(em);
-      const wallets = new MikroWalletRepository(em);
-      const outbox = new MikroOutboxRepository(em);
+    return this.unitOfWork.transactional(async ({
+      wagerTransactions: wagers,
+      wallets,
+      outboxMessages: outbox,
+    }) => {
       const pending = await wagers.findPendingReferencesDueForUpdate(now, limit);
       let processed = 0;
       let rescheduled = 0;

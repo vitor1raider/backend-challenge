@@ -6,7 +6,7 @@ import { InboxMessageEntity } from '../entities/inbox-message.entity';
 export class InboxPayloadConflictError extends Error {
   constructor(messageId: string, consumerName: string) {
     super(
-      `Inbox message ${messageId} for consumer ${consumerName} has a different payload`,
+      `A mensagem de inbox ${messageId} do consumidor ${consumerName} possui um payload diferente`,
     );
     this.name = 'InboxPayloadConflictError';
   }
