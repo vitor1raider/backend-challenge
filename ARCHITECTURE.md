@@ -22,41 +22,16 @@ As principais operações são `OPENING`, `BET`, `WIN`, `LOSS`, `REFUND` e `ROLL
 ## 3. Organização em camadas
 
 ```text
-HTTP / SQS
-    │
-    ▼
-Application use cases
-    │
-    ▼
-Domain model
-    │
-    ▼
-MikroORM / PostgreSQL / Outbox
+src/
+├── application/        # Casos de uso e coordenação dos fluxos
+├── domain/             # Regras de negócio e modelos independentes de framework
+├── infrastructure/     # Persistência, mensageria e observabilidade
+└── interfaces/         # Controllers, DTOs e endpoints HTTP
+
+test/
+├── unit/               # Testes isolados de domínio, aplicação e interfaces
+└── integration/        # PostgreSQL, LocalStack, migrations e concorrência real
 ```
-
-### Domínio
-
-`src/domain` contém `Money`, `Wallet`, `WalletLedgerEntry`, `WagerTransaction`, Inbox, Outbox e eventos. Essas classes não dependem de NestJS ou MikroORM. Construtores são privados e a criação ocorre por factories; `rehydrate` reconstrói estado persistido sem repetir transições de negócio.
-
-### Aplicação
-
-`src/application` coordena os fluxos:
-
-- criação e consulta de wallet;
-- paginação do ledger;
-- reconciliação;
-- processamento e consulta de wagers;
-- reprocessamento de referências pendentes.
-
-Os fluxos financeiros abrem uma transação do MikroORM e instanciam repositories com o mesmo `EntityManager`, mantendo wallet, wager, ledger, inbox e outbox dentro do mesmo limite transacional.
-
-### Infraestrutura
-
-`src/infrastructure` contém entities MikroORM, repositories, migrations, consumidor SQS, publisher da Outbox e logging estruturado.
-
-### Interfaces
-
-`src/interfaces/http` expõe DTOs e controllers. A validação global remove campos desconhecidos, rejeita propriedades não permitidas e transforma os DTOs antes de chamar os casos de uso.
 
 ## 4. Modelo financeiro
 
@@ -143,7 +118,7 @@ Consultas de Outbox e referências pendentes utilizam `FOR UPDATE SKIP LOCKED` p
 
 ## 8. Idempotência
 
-O header `Idempotency-Key` é a fonte da verdade na API. Um hash SHA-256 é calculado sobre JSON canônico dos campos de negócio, com chaves ordenadas.
+O header `Idempotency-Key` é um hash SHA-256 é calculado sobre JSON canônico dos campos de negócio, com chaves ordenadas.
 
 O fluxo é:
 
@@ -154,7 +129,7 @@ O fluxo é:
 
 O banco mantém unicidade para `idempotencyKey` e para `(providerId, externalTransactionId)`. Mensagens SQS também são deduplicadas por Inbox usando a chave composta `(consumerName, messageId)`.
 
-Limitação atual: a corrida de duas inserções simultâneas da mesma idempotency key ainda deve ser traduzida de violação única para replay, em vez de expor falha de infraestrutura à requisição perdedora.
+Em uma corrida de inserções com a mesma idempotency key, a violação de unicidade é interceptada e a operação persistida é recarregada. Payload idêntico é devolvido como replay; payload divergente continua sendo tratado como conflito.
 
 ## 9. Referências fora de ordem
 
@@ -162,11 +137,11 @@ Quando uma referência ainda não existe, a transação passa para `PENDING_REFE
 
 Ao expirar, a transação é rejeitada com `REFERENCE_NOT_FOUND` e produz evento de rejeição. O caso de uso usa locks com `SKIP LOCKED` para múltiplos workers.
 
-Limitação atual: o caso de uso está implementado, mas ainda não foi conectado a um scheduler do NestJS; portanto não há execução periódica automática.
+O `PendingReferenceScheduler`, registrado no scheduler do NestJS, executa o caso de uso periodicamente. O intervalo, o tamanho do lote e a habilitação são configurados por `PENDING_REFERENCE_POLLING_INTERVAL_MS`, `PENDING_REFERENCE_BATCH_SIZE` e `PENDING_REFERENCE_REPROCESSING_ENABLED`. Uma trava local impede sobreposição na mesma instância; entre instâncias, `SKIP LOCKED` coordena a seleção no PostgreSQL.
 
 ## 10. Inbox e consumo SQS
 
-O consumidor usa long polling, processa mensagens com o mesmo caso de uso da API e só remove a mensagem após retorno bem-sucedido. Falhas não recebem ack e voltam após o visibility timeout. A redrive policy move mensagens para DLQ depois do limite configurado.
+O consumidor usa long polling, processa mensagens com o mesmo caso de uso da API e só remove a mensagem após retorno bem-sucedido. Falhas não recebem ack. Antes de devolver a mensagem, o consumidor altera sua visibilidade com backoff exponencial calculado a partir de `ApproximateReceiveCount`, limitado pelas configurações `SQS_RETRY_BACKOFF_BASE_SECONDS` e `SQS_RETRY_BACKOFF_MAX_SECONDS`. A redrive policy move mensagens para DLQ depois do limite configurado.
 
 No shutdown, novas consultas são interrompidas e o consumidor aguarda as mensagens em andamento. O Inbox participa da mesma transação financeira, permitindo redelivery sem repetir efeitos confirmados.
 
@@ -207,14 +182,12 @@ O NestJS usa logger JSON. A abstração `Observability` aceita correlation ID, m
 
 Health checks separados:
 
-- `/health/live`: processo ativo;
-- `/health/ready`: PostgreSQL e SQS acessíveis.
+- `/health/live` processo ativo;
+- `/health/ready` PostgreSQL e SQS acessíveis.
 
-### Métricas Prometheus
+Métricas Prometheus
 
-O endpoint público `GET /metrics` expõe as métricas da aplicação no formato de texto do Prometheus, usando o `Content-Type` fornecido pelo `prom-client`. Cada instância mantém um registry em memória; em uma implantação com múltiplas réplicas, o Prometheus deve coletar o endpoint de todas elas e agregar as séries nas consultas e dashboards.
-
-`/metrics`
+- `/metrics` expõe as métricas da aplicação no formato de texto do Prometheus.
 
 Métricas expostas:
 
@@ -250,28 +223,20 @@ A suíte atual cobre:
 - conflitos de moeda e payload divergente;
 - controllers e health checks;
 - persistência real em PostgreSQL;
-- atomicidade entre wallet, opening, ledger e outbox;
+- execução real das migrations em schema vazio, incluindo validação de tabelas, índices e constraints, rollback e reaplicação;
+- atomicidade de wallet, wager, ledger, Inbox e Outbox, incluindo falha injetada antes do commit e comprovação do rollback integral;
 - replay com saldo histórico;
 - duas apostas concorrentes disputando o mesmo saldo;
-- unicidade, rollback do ledger, Inbox e seleção da Outbox.
-
-Lacunas conhecidas:
-
-- migrations ainda não são aplicadas pelos testes; os schemas são criados a partir das entities;
-- não há integração real com LocalStack para redelivery, DLQ e publicação;
-- não há teste de 50 submissões da mesma operação;
-- não há teste com três processos independentes;
-- crash depois do commit e antes do ack não é simulado;
-- o fluxo completo de referência fora de ordem ainda não possui teste de integração.
-
-## 18. Limitações e próximos passos
-
-1. Conectar `ReprocessPendingReferencesUseCase` a um scheduler.
-2. Converter corrida de constraint idempotente em replay seguro.
-3. Sincronizar a migration com todos os índices declarados nas entities.
-4. Adicionar proteção de imutabilidade do ledger no schema.
-5. Adicionar foreign keys e checks financeiros complementares quando compatíveis com a estratégia de retenção.
-6. Criar testes reais de LocalStack, concorrência multiprocesso e recuperação após reinício.
-7. Introduzir portas de repository para reduzir o acoplamento da aplicação ao MikroORM.
-8. Substituir classificação por texto de erro por erros de domínio tipados.
-
+- cinquenta submissões paralelas da mesma operação com um único débito;
+- wallets distintas processadas em paralelo;
+- três processos Bun independentes disputando a mesma wallet no PostgreSQL;
+- unicidade, rollback do ledger, Inbox e seleção da Outbox;
+- SQS real via LocalStack, incluindo criação de filas FIFO, redelivery, retry transitório, limite de recebimentos e DLQ;
+- deduplicação persistente da Inbox sem repetição do efeito financeiro;
+- morte real de um worker depois do commit e antes do ack, seguida de redelivery para uma nova instância sem duplicação financeira;
+- reinicialização do worker com recuperação e publicação da Outbox pendente, preservando a consistência final;
+- dois publishers concorrentes selecionando a mesma Outbox;
+- `REFUND` e `ROLLBACK` recebidos antes da transação referenciada e reprocessados posteriormente;
+- reconciliação integrada em estado consistente e detecção de divergência entre saldo materializado e ledger;
+- invariante compartilhada `wallet.balance == saldo reconstruído pelo ledger` executada após todos os cenários financeiros de aplicação e mensageria;
+- métricas de processamento e retry nos fluxos integrados.

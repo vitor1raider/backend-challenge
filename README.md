@@ -44,6 +44,10 @@ docker compose logs localstack
 
 As filas FIFO de entrada, DLQ e eventos são criadas pela aplicação quando `SQS_AUTO_CREATE_QUEUES=true`.
 
+Falhas de processamento usam backoff exponencial por alteração da visibilidade da mensagem. Configure a progressão com `SQS_RETRY_BACKOFF_BASE_SECONDS` e `SQS_RETRY_BACKOFF_MAX_SECONDS`.
+
+Referências pendentes são reprocessadas automaticamente pelo scheduler do NestJS. O worker pode ser controlado por `PENDING_REFERENCE_REPROCESSING_ENABLED`, `PENDING_REFERENCE_POLLING_INTERVAL_MS` e `PENDING_REFERENCE_BATCH_SIZE`.
+
 ## 4. Banco de dados
 
 Confira a configuração do MikroORM:
@@ -74,12 +78,6 @@ Modo de desenvolvimento:
 bun run start:dev
 ```
 
-Execução sem watch:
-
-```powershell
-bun src/main.ts
-```
-
 A API usa `http://localhost:3000` por padrão.
 
 ## 6. Testes e verificação
@@ -98,6 +96,8 @@ bun run test:integration
 ```
 
 Os testes de integração usam `TEST_DATABASE_URL` quando definido; caso contrário, usam `DATABASE_URL`. Cada arquivo cria um schema isolado e o remove ao finalizar.
+
+A suíte de persistência também parte de um schema vazio e executa as migrations reais, validando tabelas, índices e constraints, além dos fluxos de rollback e reaplicação.
 
 ## 7. API HTTP
 
@@ -147,6 +147,12 @@ GET /health/ready
 
 `ready` verifica PostgreSQL e SQS.
 
+### Métricas
+
+```text
+GET /metrics
+```
+
 ## 8. Estrutura principal
 
 ```text
@@ -157,17 +163,14 @@ src/
 └── interfaces/http/ controllers e DTOs
 
 test/
-├── unit/
-└── integration/
+├── unit/            testes unitários
+└── integration/     testes de integrações
 ```
 
 ## 9. Estado e limitações conhecidas
 
 - A autenticação não foi implementada; a decisão e o ponto de evolução estão documentados em `ARCHITECTURE.md`.
-- O caso de uso de reprocessamento de referências pendentes existe, mas ainda precisa ser ligado a um scheduler.
-- Logs JSON e health checks existem; métricas Prometheus ainda precisam ser expostas.
-- A suíte possui integração real com PostgreSQL, mas ainda não cobre todos os cenários obrigatórios com LocalStack e múltiplos processos.
-- A migration precisa acompanhar qualquer mudança posterior feita nas entities e nos índices.
+- A suíte cobre PostgreSQL, LocalStack, múltiplos processos, crash antes do ack, recuperação após reinício e valida automaticamente, ao final de cada cenário financeiro de aplicação e mensageria, que `wallet.balance` corresponde ao saldo reconstruído pelo ledger.
 
 ## 10. Encerramento do ambiente
 
