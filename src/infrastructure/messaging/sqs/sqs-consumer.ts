@@ -1,4 +1,5 @@
 import {
+  ChangeMessageVisibilityCommand,
   DeleteMessageCommand,
   ReceiveMessageCommand,
   type Message,
@@ -36,6 +37,8 @@ export interface SqsConsumerOptions {
   readonly queueUrl: string;
   readonly waitTimeSeconds: number;
   readonly visibilityTimeoutSeconds: number;
+  readonly retryBackoffBaseSeconds?: number;
+  readonly retryBackoffMaxSeconds?: number;
   readonly maxReceiveCount?: number;
 }
 
@@ -117,8 +120,12 @@ export class SqsConsumer {
     try {
       await this.handler.handle(received);
     } catch (error) {
-      // No ack: SQS redelivers after the visibility timeout and eventually
-      // moves the message to the configured DLQ.
+      const retryVisibilityTimeout = calculateRetryVisibilityTimeout(
+        received.receiveCount,
+        this.options.retryBackoffBaseSeconds ??
+          Math.max(1, this.options.visibilityTimeoutSeconds),
+        this.options.retryBackoffMaxSeconds ?? 43_200,
+      );
       this.observability.reportWarning(
         SqsConsumer.name,
         'processar_mensagem',
@@ -127,6 +134,7 @@ export class SqsConsumer {
           messageId: received.messageId,
           receiveCount: received.receiveCount,
           acknowledged: false,
+          retryVisibilityTimeout,
         },
       );
       if (
@@ -134,6 +142,12 @@ export class SqsConsumer {
         received.receiveCount >= this.options.maxReceiveCount
       ) {
         this.metrics?.recordDlqMessage();
+      } else {
+        await this.client.send(new ChangeMessageVisibilityCommand({
+          QueueUrl: this.options.queueUrl,
+          ReceiptHandle: received.receiptHandle,
+          VisibilityTimeout: retryVisibilityTimeout,
+        }));
       }
       return;
     }
@@ -145,6 +159,15 @@ export class SqsConsumer {
       }),
     );
   }
+}
+
+export function calculateRetryVisibilityTimeout(
+  receiveCount: number,
+  baseSeconds: number,
+  maxSeconds: number,
+): number {
+  const exponent = Math.max(0, receiveCount - 1);
+  return Math.min(maxSeconds, baseSeconds * (2 ** exponent), 43_200);
 }
 
 function normalizeMessage(message: Message): SqsReceivedMessage {
@@ -204,6 +227,8 @@ export class WagerTransactionConsumer
       queueUrl: this.infrastructure.wagerTransactionsUrl,
       waitTimeSeconds: this.config.waitTimeSeconds,
       visibilityTimeoutSeconds: this.config.visibilityTimeoutSeconds,
+      retryBackoffBaseSeconds: this.config.retryBackoffBaseSeconds,
+      retryBackoffMaxSeconds: this.config.retryBackoffMaxSeconds,
       maxReceiveCount: this.config.maxReceiveCount,
     }, this.observability, this.metrics);
     this.consumer.start();

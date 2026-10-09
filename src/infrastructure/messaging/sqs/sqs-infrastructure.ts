@@ -17,6 +17,8 @@ export interface SqsConfig {
   readonly eventsQueueName: string;
   readonly waitTimeSeconds: number;
   readonly visibilityTimeoutSeconds: number;
+  readonly retryBackoffBaseSeconds: number;
+  readonly retryBackoffMaxSeconds: number;
   readonly maxReceiveCount: number;
   readonly outboxPollingIntervalMs: number;
   readonly outboxBatchSize: number;
@@ -34,21 +36,42 @@ export function createSqsConfig(): SqsConfig {
       60,
       0,
     ),
+    retryBackoffBaseSeconds: readInteger(
+      'SQS_RETRY_BACKOFF_BASE_SECONDS',
+      5,
+      1,
+    ),
+    retryBackoffMaxSeconds: readInteger(
+      'SQS_RETRY_BACKOFF_MAX_SECONDS',
+      300,
+      1,
+    ),
     maxReceiveCount: readInteger('SQS_MAX_RECEIVE_COUNT', 5, 1),
     outboxPollingIntervalMs: readInteger('OUTBOX_POLLING_INTERVAL_MS', 1_000, 1),
     outboxBatchSize: readInteger('OUTBOX_BATCH_SIZE', 50, 1),
   };
 }
 
-export function createSqsClient(): SQSClient {
-  return new SQSClient({
+export interface SqsClientOptions {
+  readonly region: string;
+  readonly endpoint: string;
+  readonly credentials: {
+    readonly accessKeyId: string;
+    readonly secretAccessKey: string;
+  };
+}
+
+export function createSqsClient(
+  options: SqsClientOptions = {
     region: process.env.AWS_REGION ?? 'us-east-1',
     endpoint: process.env.SQS_ENDPOINT ?? 'http://localhost:4566',
     credentials: {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'test',
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test',
     },
-  });
+  },
+): SQSClient {
+  return new SQSClient(options);
 }
 
 @Injectable()
