@@ -7,7 +7,11 @@ import {
   ProcessWagerTransactionUseCase,
 } from '../../../src/application/wagering/process-wager-transaction.use-case';
 import { ReprocessPendingReferencesUseCase } from '../../../src/application/wagering/reprocess-pending-references.use-case';
-import { WagerTransactionKind, WagerTransactionStatus } from '../../../src/domain/enums';
+import {
+  LedgerDirection,
+  WagerTransactionKind,
+  WagerTransactionStatus,
+} from '../../../src/domain/enums';
 import { InboxMessageEntity } from '../../../src/infrastructure/persistence/entities/inbox-message.entity';
 import { OutboxMessageEntity } from '../../../src/infrastructure/persistence/entities/outbox-message.entity';
 import { WagerTransactionEntity } from '../../../src/infrastructure/persistence/entities/wager-transaction.entity';
@@ -179,12 +183,20 @@ describe('Application use cases (PostgreSQL)', () => {
 
     expect(transactionIds.size).toBe(1);
     expect(results.filter(({ idempotentReplay }) => !idempotentReplay)).toHaveLength(1);
+    expect(results.filter(({ idempotentReplay }) => idempotentReplay)).toHaveLength(49);
     expect(storedWallet.balance).toBe('90.00');
     expect(
       await orm.em.fork().count(WalletLedgerEntryEntity, {
         walletId: wallet.id,
+        direction: LedgerDirection.Debit,
       }),
-    ).toBe(2);
+    ).toBe(1);
+    expect(
+      await orm.em.fork().count(WagerTransactionEntity, {
+        walletId: wallet.id,
+        kind: WagerTransactionKind.Bet,
+      }),
+    ).toBe(1);
   });
 
   it('processes different wallets concurrently without serializing them globally', async () => {
