@@ -50,12 +50,6 @@ Referências pendentes são reprocessadas automaticamente pelo scheduler do Nest
 
 ## 4. Banco de dados
 
-Confira a configuração do MikroORM:
-
-```powershell
-bunx --bun mikro-orm debug
-```
-
 Aplique as migrations:
 
 ```powershell
