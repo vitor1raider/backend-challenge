@@ -210,7 +210,27 @@ Health checks separados:
 - `/health/live`: processo ativo;
 - `/health/ready`: PostgreSQL e SQS acessíveis.
 
-Limitação atual: `prom-client` está instalado, mas as métricas obrigatórias e o endpoint `/metrics` ainda não foram implementados.
+### Métricas Prometheus
+
+O endpoint público `GET /metrics` expõe as métricas da aplicação no formato de texto do Prometheus, usando o `Content-Type` fornecido pelo `prom-client`. Cada instância mantém um registry em memória; em uma implantação com múltiplas réplicas, o Prometheus deve coletar o endpoint de todas elas e agregar as séries nas consultas e dashboards.
+
+`/metrics`
+
+Métricas expostas:
+
+| Métrica | Tipo | Labels | Finalidade |
+|---|---|---|---|
+| `wager_transactions_total` | Counter | `status` | Total de novas operações de aposta observado por status final; replays idempotentes não incrementam esse contador |
+| `wager_idempotent_replays_total` | Counter | — | Total de requisições ou mensagens respondidas a partir de uma operação já persistida |
+| `processing_retries_total` | Counter | `component` | Tentativas adicionais realizadas por `wallet`, `outbox`, `pending_reference` ou `sqs` |
+| `sqs_dlq_messages_total` | Counter | — | Mensagens que alcançaram, durante o consumo, o limite configurado de recebimentos do SQS |
+| `wallet_lock_conflicts_total` | Counter | — | Conflitos de concorrência otimista encontrados ao atualizar wallets |
+| `outbox_lag_seconds` | Gauge | — | Idade, em segundos, da mensagem não publicada mais antiga da Outbox; vale zero quando não há mensagens pendentes |
+| `wager_processing_duration_seconds` | Histogram | `status` | Duração do processamento de operações, inclusive falhas identificadas pelo status `ERROR` |
+
+Os contadores e o histograma são atualizados pelo caso de uso de processamento, pelo consumidor SQS e pelo publisher da Outbox. O gauge de atraso é recalculado a cada execução do publisher. Como as métricas são mantidas em memória, seus valores são reiniciados quando a instância da aplicação é reiniciada.
+
+O endpoint não consulta PostgreSQL nem SQS para responder. A disponibilidade das dependências continua sendo representada por `/health/ready`, enquanto `/metrics` fornece os sinais operacionais para coleta, alertas e dashboards.
 
 ## 15. Reconciliação
 
@@ -247,12 +267,11 @@ Lacunas conhecidas:
 ## 18. Limitações e próximos passos
 
 1. Conectar `ReprocessPendingReferencesUseCase` a um scheduler.
-2. Implementar e expor métricas Prometheus.
-3. Converter corrida de constraint idempotente em replay seguro.
-4. Sincronizar a migration com todos os índices declarados nas entities.
-5. Adicionar proteção de imutabilidade do ledger no schema.
-6. Adicionar foreign keys e checks financeiros complementares quando compatíveis com a estratégia de retenção.
-7. Criar testes reais de LocalStack, concorrência multiprocesso e recuperação após reinício.
-8. Introduzir portas de repository para reduzir o acoplamento da aplicação ao MikroORM.
-9. Substituir classificação por texto de erro por erros de domínio tipados.
+2. Converter corrida de constraint idempotente em replay seguro.
+3. Sincronizar a migration com todos os índices declarados nas entities.
+4. Adicionar proteção de imutabilidade do ledger no schema.
+5. Adicionar foreign keys e checks financeiros complementares quando compatíveis com a estratégia de retenção.
+6. Criar testes reais de LocalStack, concorrência multiprocesso e recuperação após reinício.
+7. Introduzir portas de repository para reduzir o acoplamento da aplicação ao MikroORM.
+8. Substituir classificação por texto de erro por erros de domínio tipados.
 

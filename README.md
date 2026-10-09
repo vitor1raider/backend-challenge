@@ -21,37 +21,7 @@ bun install
 Copie o arquivo de exemplo:
 
 ```powershell
-Copy-Item .env.example .env
-```
-
-Use valores locais equivalentes a:
-
-```env
-POSTGRES_DB=backend_challenge
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_PORT=5432
-
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/backend_challenge
-
-LOCALSTACK_AUTH_TOKEN=adicione_se_necessario
-LOCALSTACK_PORT=4566
-
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=test
-AWS_SECRET_ACCESS_KEY=test
-SQS_ENDPOINT=http://localhost:4566
-SQS_AUTO_CREATE_QUEUES=true
-SQS_WAGER_QUEUE_NAME=wager-transactions.fifo
-SQS_WAGER_DLQ_NAME=wager-transactions-dlq.fifo
-SQS_EVENTS_QUEUE_NAME=integration-events.fifo
-SQS_VISIBILITY_TIMEOUT_SECONDS=60
-SQS_MAX_RECEIVE_COUNT=5
-SQS_WAIT_TIME_SECONDS=20
-OUTBOX_POLLING_INTERVAL_MS=1000
-OUTBOX_BATCH_SIZE=50
-
-PORT=3000
+cp .env.example .env
 ```
 
 Se a porta `5432` já estiver em uso, escolha outra em `POSTGRES_PORT` e atualize a mesma porta em `DATABASE_URL`.
@@ -113,12 +83,6 @@ bun src/main.ts
 A API usa `http://localhost:3000` por padrão.
 
 ## 6. Testes e verificação
-
-Execute a compilação TypeScript:
-
-```powershell
-node node_modules/typescript/bin/tsc --noEmit
-```
 
 Execute toda a suíte:
 
