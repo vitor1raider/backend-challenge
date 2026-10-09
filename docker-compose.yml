@@ -20,16 +20,18 @@ services:
       start_period: 20s
 
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.8
     restart: unless-stopped
     environment:
-      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:?Set LOCALSTACK_AUTH_TOKEN in the .env}
       SERVICES: sqs
     ports:
       - '127.0.0.1:${LOCALSTACK_PORT:?Set LOCALSTACK_PORT in the .env}:4566'
-    volumes:
-      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:4566/_localstack/health | grep -q ''"sqs"''']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
 volumes:
   postgres16_data:
-  localstack-data:
