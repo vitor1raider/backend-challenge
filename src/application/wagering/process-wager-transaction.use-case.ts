@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { UniqueConstraintViolationException } from '@mikro-orm/core';
 import { EntityManager } from '@mikro-orm/postgresql';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { FailureCode, LedgerDirection, WagerTransactionKind, type WagerTransactionStatus } from '../../domain/enums';
 import type { IntegrationEvent } from '../../domain/events/integration-event';
 import { WagerTransactionPendingReference, WagerTransactionProcessed, WagerTransactionRejected } from '../../domain/events/wager-transaction';
@@ -13,6 +14,7 @@ import { MikroOutboxRepository } from '../../infrastructure/persistence/reposito
 import { MikroInboxMessageRepository } from '../../infrastructure/persistence/repositories/mikro-inbox-message.repository';
 import { MikroWagerTransactionRepository } from '../../infrastructure/persistence/repositories/mikro-wager-transaction.repository';
 import { MikroWalletRepository, WalletConcurrencyError } from '../../infrastructure/persistence/repositories/mikro-wallet.repository';
+import { MetricsService } from '../../infrastructure/observability/metrics.service';
 
 export interface WagerTransactionInput {
   readonly providerId: string;
@@ -55,17 +57,55 @@ export class IdempotencyConflictError extends Error {
 
 @Injectable()
 export class ProcessWagerTransactionUseCase {
-  constructor(private readonly entityManager: EntityManager) {}
+  constructor(
+    private readonly entityManager: EntityManager,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   async execute(command: ProcessWagerTransactionCommand): Promise<ProcessWagerTransactionResult> {
+    const startedAt = performance.now();
+    let observedStatus: WagerTransactionStatus | 'ERROR' = 'ERROR';
+
+    try {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
-        return await this.executeOnce(command);
+        const result = await this.executeOnce(command);
+        observedStatus = result.status;
+        if (result.idempotentReplay) {
+          this.metrics?.recordIdempotentReplay();
+        } else {
+          this.metrics?.recordWager(result.status);
+        }
+        return result;
       } catch (error) {
+        if (error instanceof UniqueConstraintViolationException) {
+          const existing = await new MikroWagerTransactionRepository(
+            this.entityManager.fork(),
+          ).findByIdempotencyKey(command.idempotencyKey);
+
+          if (existing !== null) {
+            const payloadHash = hashWagerTransactionPayload(command.data);
+            if (!existing.matchesPayload(payloadHash)) {
+              throw new IdempotencyConflictError(command.idempotencyKey);
+            }
+            const result = resultFrom(existing, true);
+            observedStatus = result.status;
+            this.metrics?.recordIdempotentReplay();
+            return result;
+          }
+        }
         if (!(error instanceof WalletConcurrencyError) || attempt === 3) throw error;
+        this.metrics?.recordLockConflict();
+        this.metrics?.recordRetry('wallet');
       }
     }
     throw new Error('Não foi possível processar a transação após três tentativas');
+    } finally {
+      this.metrics?.recordWagerDuration(
+        observedStatus,
+        (performance.now() - startedAt) / 1_000,
+      );
+    }
   }
 
   private async executeOnce(command: ProcessWagerTransactionCommand): Promise<ProcessWagerTransactionResult> {

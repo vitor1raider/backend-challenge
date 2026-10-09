@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { Observability } from '../infrastructure/observability/observability';
+import { MetricsService } from '../infrastructure/observability/metrics.service';
 import { PersistenceModule } from '../infrastructure/persistence/persistence.module';
 import { CreateWalletUseCase } from './wallet/create-wallet.use-case';
 import { GetWalletUseCase } from './wallet/get-wallet.use-case';
@@ -22,7 +23,7 @@ const useCases = [
 
 @Module({
   imports: [PersistenceModule],
-  providers: [Observability, ...useCases],
-  exports: useCases,
+  providers: [Observability, MetricsService, ...useCases],
+  exports: [Observability, MetricsService, ...useCases],
 })
 export class ApplicationModule {}

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EntityManager } from '@mikro-orm/postgresql';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { FailureCode, LedgerDirection, WagerTransactionKind } from '../../domain/enums';
 import type { IntegrationEvent } from '../../domain/events/integration-event';
 import { WagerTransactionProcessed, WagerTransactionRejected } from '../../domain/events/wager-transaction';
@@ -10,6 +10,7 @@ import type { WagerTransaction } from '../../domain/wagering/wager-transaction';
 import { MikroOutboxRepository } from '../../infrastructure/persistence/repositories/mikro-outbox.repository';
 import { MikroWagerTransactionRepository } from '../../infrastructure/persistence/repositories/mikro-wager-transaction.repository';
 import { MikroWalletRepository } from '../../infrastructure/persistence/repositories/mikro-wallet.repository';
+import { MetricsService } from '../../infrastructure/observability/metrics.service';
 
 export interface ReprocessPendingReferencesResult {
   readonly selected: number;
@@ -20,7 +21,10 @@ export interface ReprocessPendingReferencesResult {
 
 @Injectable()
 export class ReprocessPendingReferencesUseCase {
-  constructor(private readonly entityManager: EntityManager) {}
+  constructor(
+    private readonly entityManager: EntityManager,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   async execute(now = new Date(), limit = 100): Promise<ReprocessPendingReferencesResult> {
     return this.entityManager.fork().transactional(async (em) => {
@@ -45,6 +49,7 @@ export class ReprocessPendingReferencesUseCase {
         if (reference === null) {
           transaction.scheduleReferenceRetry(now);
           await wagers.save(transaction);
+          this.metrics?.recordRetry('pending_reference');
           rescheduled += 1;
           continue;
         }

@@ -3,6 +3,7 @@ import { SendMessageCommand, type SQSClient } from '@aws-sdk/client-sqs';
 import {
   Inject,
   Injectable,
+  Optional,
   type BeforeApplicationShutdown,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import {
   SqsInfrastructure,
   type SqsConfig,
 } from './sqs-infrastructure';
+import { MetricsService } from '../../observability/metrics.service';
 
 export interface OutboxPublishResult {
   readonly selected: number;
@@ -35,6 +37,7 @@ export class SqsOutboxPublisher
     @Inject(SQS_CONFIG) private readonly config: SqsConfig,
     private readonly infrastructure: SqsInfrastructure,
     private readonly observability: Observability,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -49,6 +52,10 @@ export class SqsOutboxPublisher
   async runOnce(now = new Date()): Promise<OutboxPublishResult> {
     return this.entityManager.fork().transactional(async (em) => {
       const repository = new MikroOutboxRepository(em);
+      this.metrics?.setOutboxLag(
+        await repository.findOldestPendingOccurredAt(),
+        now,
+      );
       const messages = await repository.findDueForUpdate(
         now,
         this.config.outboxBatchSize,
@@ -104,6 +111,7 @@ export class SqsOutboxPublisher
       return 'published';
     } catch (error) {
       message.scheduleRetry(new Date());
+      this.metrics?.recordRetry('outbox');
       this.observability.reportWarning(
         SqsOutboxPublisher.name,
         'publicar_mensagem',
